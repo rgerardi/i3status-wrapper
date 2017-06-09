@@ -8,10 +8,10 @@ For simple tasks, a simple bash script (like the example provided in the man pag
 
 This program provides a wrapper for the i3status command with support for i3bar protocol and the ability to run your own scripts and programs, adding their output to the i3status output.
 
-Since it supports the i3bar protocol, it is intended to be used only with i3bar, usually running on [i3 wm] (https://i3wm.org/)
+Since it supports the i3bar protocol, it is intended to be used only with i3bar, usually running on [i3 wm](https://i3wm.org/)
 
 ## Features:
-* Support for the [i3bar] (https://i3wm.org/docs/i3bar-protocol.html) protocol in JSON
+* Support for the [i3bar](https://i3wm.org/docs/i3bar-protocol.html) protocol in JSON
 * Support for colors, markup and Unicode characters
 * Support for execution of custom commands, adding the output to i3status results
 * Support for JSON output of custom commands
