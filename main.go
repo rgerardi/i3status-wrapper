@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // i3bar struct represents a block in the i3bar protocol
@@ -28,6 +31,11 @@ type i3bar struct {
 }
 
 func main() {
+
+	// Defining a timeout flag to give control to the user on when to timeout long running commands
+	// It will be used by the context creation command in the loop below
+	timeout := flag.Duration("timeout", 5*time.Second, "timeout for custom command execution")
+	flag.Parse()
 
 	stdInDec := json.NewDecoder(os.Stdin)
 	stdOutEnc := json.NewEncoder(os.Stdout)
@@ -76,18 +84,23 @@ func main() {
 		customBlocks := []i3bar{}
 
 		// Custom commands to be included in the output should be provided
-		// as arguments to i3status-wrapper
-		customCommands := os.Args[1:]
-
-		for _, cmd := range customCommands {
+		// as arguments to i3status-wrapper. They will be parsed by flag.Args
+		for _, cmd := range flag.Args() {
 
 			// Commands are split by a blank space to separate arguments if any
 			cmdSplit := strings.Split(cmd, " ")
 
-			customCmd := exec.Command(cmdSplit[0], cmdSplit[1:]...)
+			// Adding a context with timeout to handle cases of long running commands
+			ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+			defer cancel()
+
+			customCmd := exec.CommandContext(ctx, cmdSplit[0], cmdSplit[1:]...)
 			cmdStatusOutput, err := customCmd.Output()
 
-			if err != nil {
+			// If the deadline was exceeded, just ouput that to the status instead of failing
+			if ctx.Err() == context.DeadlineExceeded {
+				cmdStatusOutput = []byte("Timed out")
+			} else if err != nil {
 				fmt.Println("Cannnot run command:", cmd, ":", err.Error())
 				os.Exit(1)
 			}
