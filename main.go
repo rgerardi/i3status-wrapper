@@ -30,6 +30,11 @@ type i3bar struct {
 	SeparatorBlockWidth int    `json:"separator_block_width,omitempty"`
 }
 
+type customJob struct {
+	result *i3bar
+	order  int
+}
+
 type customCommand struct {
 	command string
 	args    []string
@@ -130,12 +135,20 @@ func main() {
 
 		// Creating a channel to receive the result for the goroutine that runs
 		// the custom commands asynchronously
-		customBlockChan := make(chan *i3bar)
+		results := make(chan customJob)
 
 		// Execute every custom command provided as an argument to i3status-wrapper
-		for _, cmd := range cmdList {
+		for k, cmd := range cmdList {
 
-			go func(cmd customCommand, outputBlock chan *i3bar) {
+			go func(pos int, cmd customCommand, outputChan chan customJob) {
+
+				// Create the job result with the input order as pos
+				// Pos will be used later t ensure results are processed in
+				// the same order as input
+				job := customJob{
+					result: &i3bar{},
+					order:  pos,
+				}
 
 				cmdStatusOutput, err := cmd.execute()
 				if err != nil {
@@ -145,33 +158,34 @@ func main() {
 
 				// Here we try to parse the output as JSON with the i3bar format
 				// If it fails the output will be processed as a regular string
-				var customBlock i3bar
-
-				err = json.Unmarshal(cmdStatusOutput, &customBlock)
+				err = json.Unmarshal(cmdStatusOutput, job.result)
 
 				if err != nil {
 					// Not JSON, using custom fields and string output as FullText
-					customBlock.Name = "customCmd"
-					customBlock.Instance = cmd.command
-					customBlock.FullText = string(cmdStatusOutput)
+					job.result.Name = "customCmd"
+					job.result.Instance = cmd.command
+					job.result.FullText = string(cmdStatusOutput)
 				}
 
 				// Send results out to channel
-				outputBlock <- &customBlock
+				outputChan <- job
 
-			}(cmd, customBlockChan)
+			}(k, cmd, results)
 		}
 
 		// Process custom commands results as they become available
 		for i := 0; i < len(cmdList); i++ {
-			customBlocks[i] = <-customBlockChan
+			r := <-results
+			// Order (provided during job creation) will be used to position
+			// commands correctly regardless of results availability order
+			customBlocks[r.order] = r.result
 		}
-		close(customBlockChan)
+		close(results)
 
 		// Appending blocks from i3status to the custom blocks
 		customBlocks = append(customBlocks, blocks...)
 
-		// Sending output back to stdout to be processed by i3bar
+		// Enconding & Sending output back to stdout to be processed by i3bar
 		err = stdOutEnc.Encode(customBlocks)
 		if err != nil {
 			fmt.Println("Cannot encode output json:", err.Error())
