@@ -30,12 +30,57 @@ type i3bar struct {
 	SeparatorBlockWidth int    `json:"separator_block_width,omitempty"`
 }
 
+type customCommand struct {
+	command string
+	args    []string
+	timeout time.Duration
+}
+
+func (c *customCommand) execute() ([]byte, error) {
+
+	// Adding a context with timeout to handle cases of long running commands
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+
+	customCmd := exec.CommandContext(ctx, c.command, c.args...)
+	cmdStatusOutput, err := customCmd.Output()
+
+	// If the deadline was exceeded, just ouput that to the status instead of failing
+	if ctx.Err() == context.DeadlineExceeded {
+		return []byte("Timed out"), nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	cmdStatusOutput = bytes.TrimSpace(cmdStatusOutput)
+	return cmdStatusOutput, nil
+}
+
 func main() {
 
 	// Defining a timeout flag to give control to the user on when to timeout long running commands
 	// It will be used by the context creation command in the loop below
 	timeout := flag.Duration("timeout", 5*time.Second, "timeout for custom command execution")
 	flag.Parse()
+
+	// Defining an slice to hold the list of custom commands to be executed every iteration
+	cmdList := make([]customCommand, len(flag.Args()))
+
+	// Custom commands to be included in the output should be provided
+	// as arguments to i3status-wrapper. They will be parsed by flag.Args
+	for k, cmd := range flag.Args() {
+
+		// Commands are split by a blank space to separate arguments if any
+		cmdSplit := strings.Split(cmd, " ")
+
+		cmdList[k] = customCommand{
+			command: cmdSplit[0],
+			args:    cmdSplit[1:],
+			timeout: *timeout,
+		}
+	}
 
 	stdInDec := json.NewDecoder(os.Stdin)
 	stdOutEnc := json.NewEncoder(os.Stdout)
@@ -80,32 +125,17 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Creating an empty array of i3bar blocks to be filled with custom blocks
-		customBlocks := []i3bar{}
+		// Creating an empty slice of i3bar blocks to be filled with custom blocks
+		customBlocks := make([]i3bar, len(cmdList), len(blocks)+len(cmdList))
 
-		// Custom commands to be included in the output should be provided
-		// as arguments to i3status-wrapper. They will be parsed by flag.Args
-		for _, cmd := range flag.Args() {
+		// Execute every custom command provided as an argument ot i3status-wrapper
+		for k, cmd := range cmdList {
 
-			// Commands are split by a blank space to separate arguments if any
-			cmdSplit := strings.Split(cmd, " ")
-
-			// Adding a context with timeout to handle cases of long running commands
-			ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-			defer cancel()
-
-			customCmd := exec.CommandContext(ctx, cmdSplit[0], cmdSplit[1:]...)
-			cmdStatusOutput, err := customCmd.Output()
-
-			// If the deadline was exceeded, just ouput that to the status instead of failing
-			if ctx.Err() == context.DeadlineExceeded {
-				cmdStatusOutput = []byte("Timed out")
-			} else if err != nil {
-				fmt.Println("Cannnot run command:", cmd, ":", err.Error())
+			cmdStatusOutput, err := cmd.execute()
+			if err != nil {
+				fmt.Println("Cannnot run command:", cmd.command, ":", err.Error())
 				os.Exit(1)
 			}
-
-			cmdStatusOutput = bytes.TrimSpace(cmdStatusOutput)
 
 			// Here we try to parse the output as JSON with the i3bar format
 			// If it fails the output will be processed as a regular string
@@ -116,11 +146,11 @@ func main() {
 			if err != nil {
 				// Not JSON, using custom fields and string output as FullText
 				customBlock.Name = "customCmd"
-				customBlock.Instance = cmdSplit[0]
+				customBlock.Instance = cmd.command
 				customBlock.FullText = string(cmdStatusOutput)
 			}
 
-			customBlocks = append(customBlocks, customBlock)
+			customBlocks[k] = customBlock
 		}
 
 		customBlocks = append(customBlocks, blocks...)
