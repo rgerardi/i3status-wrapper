@@ -63,6 +63,38 @@ func (c *customCommand) execute() ([]byte, error) {
 	return cmdStatusOutput, nil
 }
 
+func runJob(pos int, cmd customCommand, outputChan chan customJob) {
+
+	// Create the job result with the input order as pos
+	// Pos will be used later t ensure results are processed in
+	// the same order as input
+	job := customJob{
+		result: &i3bar{},
+		order:  pos,
+	}
+
+	cmdStatusOutput, err := cmd.execute()
+	if err != nil {
+		fmt.Println("Cannot run command:", cmd.command, ":", err.Error())
+		os.Exit(1)
+	}
+
+	// Here we try to parse the output as JSON with the i3bar format
+	// If it fails the output will be processed as a regular string
+	err = json.Unmarshal(cmdStatusOutput, job.result)
+
+	if err != nil {
+		// Not JSON, using custom fields and string output as FullText
+		job.result.Name = "customCmd"
+		job.result.Instance = cmd.command
+		job.result.FullText = string(cmdStatusOutput)
+	}
+
+	// Send results out to channel
+	outputChan <- job
+
+}
+
 func main() {
 
 	// Defining a timeout flag to give control to the user on when to timeout long running commands
@@ -139,38 +171,7 @@ func main() {
 
 		// Execute every custom command provided as an argument to i3status-wrapper
 		for k, cmd := range cmdList {
-
-			go func(pos int, cmd customCommand, outputChan chan customJob) {
-
-				// Create the job result with the input order as pos
-				// Pos will be used later t ensure results are processed in
-				// the same order as input
-				job := customJob{
-					result: &i3bar{},
-					order:  pos,
-				}
-
-				cmdStatusOutput, err := cmd.execute()
-				if err != nil {
-					fmt.Println("Cannot run command:", cmd.command, ":", err.Error())
-					os.Exit(1)
-				}
-
-				// Here we try to parse the output as JSON with the i3bar format
-				// If it fails the output will be processed as a regular string
-				err = json.Unmarshal(cmdStatusOutput, job.result)
-
-				if err != nil {
-					// Not JSON, using custom fields and string output as FullText
-					job.result.Name = "customCmd"
-					job.result.Instance = cmd.command
-					job.result.FullText = string(cmdStatusOutput)
-				}
-
-				// Send results out to channel
-				outputChan <- job
-
-			}(k, cmd, results)
+			go runJob(k, cmd, results)
 		}
 
 		// Process custom commands results as they become available
