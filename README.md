@@ -15,6 +15,8 @@ Since it supports the i3bar protocol, it is intended to be used only with i3bar,
 * Support for colors, markup and Unicode characters
 * Support for execution of custom commands, adding the output to i3status results
 * Support for JSON output of custom commands
+* Support for concurrent execution of custom commands
+* Support for custom commands time out configuration
 
 ## How to install:
 ```
@@ -53,4 +55,14 @@ general {
 }
 ...
 
+``` 
+
+### Setting a timeout
+i3status-wrapper support custom timeout configuration for custom commands. At this moment this is a global configuration that aplies to all commands. By default the timeout is set to 5s (which is usually the i3bar refresh time).
+
+Commands that do not finish within the specified timeout interval will be cancelled and instead of the output, a string "Timed out" will be displayed.
+
+The timeout can be set by using the `-timeout` flag. For example, to set the timeout to 3s:
+```
+i3status | i3status-wrapper -timeout 3s custom-script1.sh custom-script2.sh
 ``` 
