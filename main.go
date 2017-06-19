@@ -30,15 +30,15 @@ type i3bar struct {
 	SeparatorBlockWidth int    `json:"separator_block_width,omitempty"`
 }
 
-type customJob struct {
-	result *i3bar
-	order  int
-}
-
+// customCommand represents a custom command to be executed
+// contains details about the command to be executed, its arguments (if any),
+// timeout, the result block and the order in which the result should be displayed
 type customCommand struct {
 	command string
 	args    []string
 	timeout time.Duration
+	result  *i3bar
+	order   int
 }
 
 func (c *customCommand) execute() ([]byte, error) {
@@ -63,35 +63,27 @@ func (c *customCommand) execute() ([]byte, error) {
 	return cmdStatusOutput, nil
 }
 
-func runJob(pos int, cmd customCommand, outputChan chan customJob) {
+func (c *customCommand) runJob(done chan int) {
 
-	// Create the job result with the input order as pos
-	// Pos will be used later t ensure results are processed in
-	// the same order as input
-	job := customJob{
-		result: &i3bar{},
-		order:  pos,
-	}
-
-	cmdStatusOutput, err := cmd.execute()
+	cmdStatusOutput, err := c.execute()
 	if err != nil {
-		fmt.Println("Cannot run command:", cmd.command, ":", err.Error())
+		fmt.Println("Cannot run command:", c.command, ":", err.Error())
 		os.Exit(1)
 	}
 
 	// Here we try to parse the output as JSON with the i3bar format
 	// If it fails the output will be processed as a regular string
-	err = json.Unmarshal(cmdStatusOutput, job.result)
+	err = json.Unmarshal(cmdStatusOutput, c.result)
 
 	if err != nil {
 		// Not JSON, using custom fields and string output as FullText
-		job.result.Name = "customCmd"
-		job.result.Instance = cmd.command
-		job.result.FullText = string(cmdStatusOutput)
+		c.result.Name = "customCmd"
+		c.result.Instance = c.command
+		c.result.FullText = string(cmdStatusOutput)
 	}
 
-	// Send results out to channel
-	outputChan <- job
+	// Send status out to channel, indicates both completion and order
+	done <- c.order
 
 }
 
@@ -103,7 +95,7 @@ func main() {
 	flag.Parse()
 
 	// Defining an slice to hold the list of custom commands to be executed every iteration
-	cmdList := make([]customCommand, len(flag.Args()))
+	cmdList := make([]*customCommand, len(flag.Args()))
 
 	// Custom commands to be included in the output should be provided
 	// as arguments to i3status-wrapper. They will be parsed by flag.Args
@@ -112,10 +104,12 @@ func main() {
 		// Commands are split by a blank space to separate arguments if any
 		cmdSplit := strings.Split(cmd, " ")
 
-		cmdList[k] = customCommand{
+		cmdList[k] = &customCommand{
 			command: cmdSplit[0],
 			args:    cmdSplit[1:],
 			timeout: *timeout,
+			result:  &i3bar{},
+			order:   k,
 		}
 	}
 
@@ -165,23 +159,23 @@ func main() {
 		// Creating an empty slice of i3bar blocks to be filled with custom blocks
 		customBlocks := make([]*i3bar, len(cmdList), len(blocks)+len(cmdList))
 
-		// Creating a channel to receive the result for the goroutine that runs
-		// the custom commands asynchronously
-		results := make(chan customJob)
+		// Creating a channel to receive the status for the goroutine that runs
+		// the custom commands asynchronously (contains the order of the finished command)
+		done := make(chan int)
 
 		// Execute every custom command provided as an argument to i3status-wrapper
-		for k, cmd := range cmdList {
-			go runJob(k, cmd, results)
+		for _, cmd := range cmdList {
+			go cmd.runJob(done)
 		}
 
 		// Process custom commands results as they become available
 		for i := 0; i < len(cmdList); i++ {
-			r := <-results
-			// Order (provided during job creation) will be used to position
-			// commands correctly regardless of results availability order
-			customBlocks[r.order] = r.result
+			d := <-done
+			// d contains the order provided during creation. It will be  used to
+			// position commands correctly regardless of results availability order
+			customBlocks[d] = cmdList[d].result
 		}
-		close(results)
+		close(done)
 
 		// Appending blocks from i3status to the custom blocks
 		customBlocks = append(customBlocks, blocks...)
