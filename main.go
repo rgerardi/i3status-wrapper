@@ -30,6 +30,14 @@ type i3bar struct {
 	SeparatorBlockWidth int    `json:"separator_block_width,omitempty"`
 }
 
+// i3barHeader represents the i3bar header according to the i3bar protocol
+type i3barHeader struct {
+	Version     int  `json:"version"`
+	StopSignal  int  `json:"stop_signal,omitempty"`
+	ContSignal  int  `json:"cont_signal,omitempty"`
+	ClickEvents bool `json:"click_events,omitempty"`
+}
+
 // customCommand represents a custom command to be executed
 // contains details about the command to be executed, its arguments (if any),
 // timeout, the result block and the order in which the result should be displayed
@@ -117,17 +125,15 @@ func main() {
 	stdOutEnc := json.NewEncoder(os.Stdout)
 
 	// The first line is a header indicating to i3bar that JSON will be used
-	i3barHeader := struct {
-		Version int `json:"version"`
-	}{}
+	var header i3barHeader
 
-	err := stdInDec.Decode(&i3barHeader)
+	err := stdInDec.Decode(&header)
 	if err != nil {
 		fmt.Println("Cannot read input:", err.Error())
 		os.Exit(1)
 	}
 
-	err = stdOutEnc.Encode(i3barHeader)
+	err = stdOutEnc.Encode(header)
 	if err != nil {
 		fmt.Println("Cannot encode output json:", err.Error())
 		os.Exit(1)
